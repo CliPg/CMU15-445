@@ -1,0 +1,1 @@
+SELECT DISTINCT(name) from artist_type ORDER BY name;

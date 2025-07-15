@@ -113,3 +113,93 @@ Codd提出的三大关键思想
 2. 关系代数提供了操作关系的基础运算
 3. 声明式查询(SQL)让DBMS优化执行策略，是关系模型的强大优势
 4. 理解关系模型的基本概念(关系、元组、主键、外键)对数据库设计至关重要
+
+## 02 SQL
+SQL是为关系型数据库设计的声明式语言
+
+关系型语言由不同类别的命令组成
+- Data Manipulation Language(DML)
+- Data Definition Language(DDL)
+- Data Control Language(DCL)
+
+eg.
+```SQL
+CREATE TABLE student (
+sid INT PRIMARY KEY,
+name VARCHAR(16),
+login VARCHAR(32) UNIQUE,
+age SMALLINT,
+gpa FLOAT
+);
+CREATE TABLE course (
+cid VARCHAR(32) PRIMARY KEY,
+name VARCHAR(32) NOT NULL
+);
+CREATE TABLE enrolled (
+sid INT REFERENCES student (sid),
+cid VARCHAR(32) REFERENCES course (cid),
+grade CHAR(1)
+);
+```
+
+### 聚合函数
+常用聚合函数：AVG, MIN, MAX, SUM, COUNT
+
+支持 DISTINCT 关键字（如 COUNT(DISTINCT login)）。
+
+非聚合列必须出现在 GROUP BY 中。
+
+HAVING 用于过滤分组结果（类似 WHERE 但针对聚合值）。
+
+### 字符串操作
+字符串区分大小写，使用单引号。
+
+LIKE 支持通配符：
+
+%：匹配任意子串
+
+_：匹配单个字符
+
+函数示例：SUBSTRING, UPPER，连接符 ||（部分系统可能不同）。
+
+### 输出控制
+ORDER BY 排序（默认 ASC，可指定 DESC）。
+
+LIMIT 限制返回行数，OFFSET 跳过行。
+
+未排序时，结果可能因 DBMS 实现不同而变化。
+
+### 窗口函数
+对滑动窗口内的数据进行计算，不折叠结果。
+
+函数示例：
+
+ROW_NUMBER()：行号（排序前计算）
+
+RANK()：排名（排序后计算）
+
+语法：OVER (PARTITION BY ... ORDER BY ...)
+
+### 嵌套查询
+子查询可出现在 SELECT、FROM、WHERE 等子句中。
+
+常用表达式：
+
+IN / NOT IN：匹配子查询结果
+
+EXISTS / NOT EXISTS：检查子查询是否返回行
+
+ANY / ALL：比较子查询结果
+
+### Lateral Joins
+允许子查询引用前置查询的列，类似循环遍历。
+
+### 公用表表达式（CTE）
+WITH 创建临时表，简化复杂查询。
+
+递归 CTE（WITH RECURSIVE）支持递归操作，使 SQL 具备图灵完备性。
+
+### 其他特性
+日期和时间：支持操作，但语法因系统而异。
+
+输出重定向：将查询结果存入新表或现有表（INTO 或 INSERT INTO）。
