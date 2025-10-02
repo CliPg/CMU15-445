@@ -203,3 +203,30 @@ WITH 创建临时表，简化复杂查询。
 日期和时间：支持操作，但语法因系统而异。
 
 输出重定向：将查询结果存入新表或现有表（INTO 或 INSERT INTO）。
+
+
+
+## 03 Database Storage
+
+### 1 .Storage
+
+在这门课重点介绍面向磁盘的数据库管理系统，该架构假定数据库的主存储位置在磁盘上。
+
+
+
+### 2. Disk-Oriented DBMS Overview
+
+数据库存储在磁盘上，数据库文件的数据被组织成页，第一页时目录页。要对数据进行操作，DBMS需要将数据放入内存，它通过内存中的一个缓冲池来管理数据在磁盘和内存之间的移动。DBMS还具有执行查询的执行引擎。执行引擎向缓冲池请求特定页面，缓冲池将页面放入内存，并向执行引擎提供指向内存中该页面的指针。
+
+
+
+### 7. Page Layout
+
+每页包含
+
+- Page size
+- Checksum
+- DBMS version
+- Transaction visibility
+- Self-containment
+
