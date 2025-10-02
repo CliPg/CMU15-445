@@ -5,7 +5,7 @@ projects and notes for CMU15-445 2025
 
 Notes: 课程的讲义
 
-Hw & Proj: 仓库中的每个hw和proj都包含了对题目详细的讲解
+Hw & Proj: 仓库中的每个hw和proj都包含了代码和对题目详细的讲解
 
 Database System.md: 学习这门课记录的笔记
 

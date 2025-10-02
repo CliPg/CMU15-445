@@ -50,6 +50,166 @@
 
 
 
+完成这个项目需要对Buffer Pool Manager(bpm)的每个组件有深刻的认识，并记住有哪些成员变量和函数。
+
+下面记录了各个组件的属性：
+
+#### LRUKReplacer
+
+```
+// bustub/src/buffer/lru_k_replacer.cpp
+std::unordered_map<frame_id_t, LRUKNode> node_store_;
+size_t current_timestamp_{0}; // 时间戳
+size_t curr_size_{0}; // 可驱逐的帧的数量
+size_t replacer_size_;
+size_t k_;
+std::mutex latch_;
+
+auto Evict() -> std::optional<frame_id_t>;
+void RecordAccess(frame_id_t frame_id, AccessType access_type = AccessType::Unknown);
+void SetEvictable(frame_id_t frame_id, bool set_evictable);
+void Remove(frame_id_t frame_id);
+auto Size() -> size_t;
+```
+
+LRUKReplacer用来控制缓冲池中的帧的淘汰与否。
+
+
+
+#### DiskScheduler
+
+```
+// bustub/src/storage/disk/disk_scheduler
+Channel<std::optional<DiskRequest>> request_queue_; // 请求队列
+std::optional<std::thread> background_thread_; 
+
+void Scheduler(); // 将请求放入队列中
+void StartWorkerThread(); // 开启工作线程，让disk_manager进行读写页面
+void DeallocatePage 取消分配在磁盘的页面
+```
+
+DiskScheduler用来处理对磁盘的读写请求（从磁盘读数据到内存中和把数据从内存写到磁盘）。
+
+
+
+#### ReadPageGuard
+
+```
+// bustub/src/storage/page/page_guard.cpp
+page_id_t page_id_;
+std::shared_ptr<FrameHeader> frame_;
+std::shared_ptr<LRUKReplacer> replacer_;
+std::shared_ptr<std::mutex> bpm_latch_;
+std::shared_ptr<DiskScheduler> disk_scheduler_;
+bool is_valid_{false};
+std::shared_lock<std::shared_mutex> frame_latch_; // 自己添加的，对帧的读锁
+
+ReadPageGuard(const ReadPageGuard &) = delete;
+auto operator=(const ReadPageGuard &) -> ReadPageGuard & = delete;
+ReadPageGuard(ReadPageGuard &&that) noexcept;
+auto operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard &;
+auto GetPageId() const -> page_id_t;
+auto GetData() const -> const char *;
+auto IsDirty() const -> bool;
+void Flush();
+void Drop();
+```
+
+
+
+#### WritePageGuard
+
+```
+// bustub/src/storage/page/page_guard.cpp
+page_id_t page_id_;
+std::shared_ptr<FrameHeader> frame_;
+std::shared_ptr<LRUKReplacer> replacer_;
+std::shared_ptr<std::mutex> bpm_latch_;
+std::shared_ptr<DiskScheduler> disk_scheduler_;
+bool is_valid_{false};
+std::shared_lock<std::unique_mutex> frame_latch_; // 自己添加的，对帧的写锁
+
+WritePageGuard(const WritePageGuard &) = delete;
+auto operator=(const WritePageGuard &) -> WritePageGuard & = delete;
+ReadPageGuard(WritePageGuard &&that) noexcept;
+auto operator=(WritePageGuard &&that) noexcept -> WritePageGuard &;
+auto GetPageId() const -> page_id_t;
+auto GetData() const -> const char *;
+auto IsDirty() const -> bool;
+void Flush();
+void Drop();
+```
+
+
+
+PageGuard用来对帧进行读写守卫，控制并发。可以理解为有一个进程正在操作这个页面。
+
+
+
+#### BufferPoolManager
+
+```
+// bustub/src/buffer/buffer_pool_manager
+const size_t num_frames_; // 帧数量
+std::atomic<page_id_t> next_page_id_; // 原子变量，用于生成下一页id
+std::shared_ptr<std::mutex> bpm_latch_; // 锁
+std::vector<std::shared_ptr<FrameHeader>> frames_; // 帧头部
+std::unordered_map<page_id_t, frame_id_t> page_table_;
+std::list<frame_id_t> free_frames_; // 空闲帧
+std::shared_ptr<LRUKReplacer> replacer_;
+std::shared_ptr<DiskScheduler> disk_scheduler_;
+
+auto Size() const -> size_t;
+auto NewPage() -> page_id_t;
+auto DeletePage(page_id_t page_id) -> bool;
+auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
+      -> std::optional<WritePageGuard>;
+auto CheckedReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> std::optional<ReadPageGuard>;
+auto WritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> WritePageGuard;
+auto ReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> ReadPageGuard;
+auto FlushPageUnsafe(page_id_t page_id) -> bool;
+auto FlushPage(page_id_t page_id) -> bool;
+void FlushAllPagesUnsafe();
+void FlushAllPages();
+auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
+    std::optional<frame_id_t> GetFrame(page_id_t page_id); // 明确返回类型
+
+```
+
+BufferPoolManager用来创建新页面、读写守卫
+
+
+
+#### FrameHeader
+
+```
+// bustub/src/buffer/buffer_pool_manager
+auto GetData() const -> const char *;
+auto GetDataMut() -> char *;
+void Reset();
+
+const frame_id_t frame_id_;
+std::shared_mutex rwlatch_;
+std::atomic<size_t> pin_count_; // 多少线程在操作当前帧
+bool is_dirty_; // 帧在内存和磁盘的页面数据是否同步
+std::vector<char> data_; // 帧所指向页面的数据的指针
+```
+
+用来指向某个帧和获取存储数据的地址
+
+
+
+#### DiskReques
+
+```
+bool is_write_;
+char *data_;
+page_id_t page_id_;
+std::promise<bool> callback_;
+```
+
+读写磁盘的请求结构体
+
 
 
 ## **任务 #1 —— LRU-K 页面置换策略**
@@ -370,61 +530,27 @@ int main() {
 
 ## 任务 #3 - 缓冲池管理器（Buffer Pool Manager）
 
-
-
-
-
 最后，你需要实现缓冲池管理器 (**BufferPoolManager**)！
 
 正如本页面开头所说，缓冲池管理器的职责是：
 
-
-
 - 使用 **DiskScheduler** 从磁盘读取数据库页面并存放到内存；
 - 当被显式要求，或在需要淘汰页面腾出空间时，将**脏页（dirty pages）**写回磁盘。
 
-
-
-
-
 你的 BufferPoolManager 实现会用到你在前两个任务里写的 **LRUKReplacer** 和 **DiskScheduler**：
-
-
 
 - **LRUKReplacer** 负责记录页面访问时间，从而决定在需要腾出空间时，应该淘汰哪个 frame；
 - **DiskScheduler** 会调度页面的读写请求并调用 **DiskManager** 执行真正的磁盘操作。
 
-
-
-
-
 我们提供了一个辅助类 **FrameHeader**，用于管理内存中的 frame。所有对页面数据的访问都必须通过 FrameHeader。
-
-
 
 - FrameHeader::GetData 方法会返回一个指向该 frame 内存的原始指针，DiskScheduler / DiskManager 会用它来把物理页的内容拷贝到内存。
 - 缓冲池管理器本身并不关心页面的具体内容，它只知道 **page_id** 和 **FrameHeader** 的对应关系。
 - 同一个 FrameHeader 在系统生命周期内会被重复利用来存储不同的页面。
 
-
-
-
-
-------
-
-
-
-
-
-### **并发控制（Concurrency）**
-
-
-
-
+并发控制（Concurrency）
 
 在实现多线程的 BufferPoolManager 时，必须保证数据访问的同步，避免以下情况：
-
-
 
 1. 线程 T1 从磁盘加载页面 X1 到 frame，并修改成新版本 X2；
 
@@ -438,116 +564,48 @@ int main() {
 
 
 
-
-
 因此我们必须保证：
-
-
 
 - **同一个页面在内存中只能有一个副本**；
 - 不能在有线程正在访问页面时把它驱逐（evict）出去。
 
-
-
-
-
 为此，需要维护一个 **pin count（引用计数 / 固定计数）**：
-
-
 
 - pin count 表示当前有多少线程正在访问该页面；
 - 只要 pin count > 0，缓冲池管理器就**不能驱逐**这个页面；
 - pin count 可以通过 **FrameHeader::pin_count_** （一个原子变量）来维护；
 - 注意：pin_count_ 和 LRUKReplacer::SetEvictable 是分开的，你需要自己确保两者保持一致。
 
-
-
-
-
-此外，每个 FrameHeader 还有一个 is_dirty_ 标志：
-
-
+此外，每个 FrameHeader 还有一个 is_dirty_ 标志
 
 - 如果页面在内存中被修改过，就要标记为 dirty；
 - 当页面被驱逐时，如果是 dirty，就必须先写回磁盘。
 
 
 
-
-
-------
-
-
-
-
-
 ### **PageGuard（页面守卫）**
 
-
-
-
-
 你还需要实现两个 RAII 对象：
-
-
 
 - **ReadPageGuard**：提供线程安全的只读访问；
 - **WritePageGuard**：提供线程安全的读写访问。
 
-
-
-
-
 它们的职责是：
-
-
 
 - 当创建时，自动 pin 住页面；
 - 当销毁时，自动 unpin 页面，必要时刷新到磁盘；
 - 确保线程不会忘记释放页面，避免死锁或内存泄漏。
 
-
-
-
-
 建议你和 BufferPoolManager 的方法一起实现，比如：
-
-
 
 - CheckedReadPage 和 CheckedWritePage 返回对应的 Guard；
 - 你也可以先实现 GetPinCount，然后拼凑一个最简单的 PageGuard 测试通过的版本，再慢慢完善。
 
 
 
-
-
-------
-
-
-
-
-
 ### **需要实现的方法**
 
-
-
-
-
-
-
-#### **PageGuard（在** 
-
-#### **page_guard.h**
-
-####  **和** 
-
-#### **page_guard.cpp**
-
-#### **）：**
-
-
-
-
+#### PageGuard
 
 - ReadPageGuard::ReadPageGuard()
 - ReadPageGuard::ReadPageGuard(ReadPageGuard &&that)
@@ -562,31 +620,7 @@ int main() {
 
 
 
-
-
-> 这些方法实现了 **移动语义（move semantics）** 和 **RAII**。两个类几乎完全相同，只有少量差异。
-
-
-
-------
-
-
-
-
-
-#### **BufferPoolManager（在** 
-
-#### **buffer_pool_manager.h**
-
-####  **和** 
-
-#### **buffer_pool_manager.cpp**
-
-#### **）：**
-
-
-
-
+#### BufferPoolManager
 
 - NewPage() -> page_id_t
 - DeletePage(page_id_t page_id) -> bool
@@ -602,39 +636,226 @@ int main() {
 
 
 
-每个函数在源码文件里都有详细的注释，强烈建议你仔细阅读。
-
-
-
-------
-
-
-
-
-
-### **并发性能要求**
-
-
-
-
-
 - 所有 BufferPoolManager 的公有方法，可以在开始时加锁，在结束时解锁，这样就能保证安全（不用追求极致性能）；
 - 但要避免死锁，有些地方可能需要提前释放锁；
 - 不需要非常高效，但必须合理，否则后续实验（比如 QPS.1 / QPS.2 基准测试）会出问题。
 
 
 
+### 实现思路
+
+**NewPage**
+
+```
+auto BufferPoolManager::NewPage() -> page_id_t {
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
+  // fetch_add原子地atomic变量加上指定值
+  page_id_t new_page_id = next_page_id_.fetch_add(1);
+  return new_page_id;
+}
+```
+
+next_page_id是不断自增的原子变量，在并发过程中也能保持唯一性，为每个新页赋值一个page id
 
 
-------
+
+**DeletePage**
+
+```
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  frame_id_t frame_id = page_table_[page_id];
+  std::shared_ptr<FrameHeader> header = frames_[frame_id];
+  if (header->pin_count_ != 0) {
+    return false;
+  }
+  disk_scheduler_->DeallocatePage(page_id);
+  free_frames_.push_back(frame_id);
+  return true;
+}
+```
+
+删除页面时，需要先判断是否有进程正在操作这个页面
+
+DeallocatePage会调用DiskManager的DeletePage,会删除页表中的pageid,frameid键值对。
+
+删除页面后还需要在空闲帧插入改帧。
 
 
 
-⚡总结：
+**UpdateFrame**
+
+```
+void BufferPoolManager::UpdateFrame(frame_id_t fid, page_id_t pid, bool is_write) {
+    auto frame = frames_[fid];
+    auto data = const_cast<char *>(frame->GetData());
+    std::promise<bool> promise;
+    auto future = promise.get_future();
+    DiskRequest r{is_write, data, pid, std::move(promise)};
+    disk_scheduler_->Schedule(std::move(r));
+    future.get();
+    frame->is_dirty_ = false;
+}
+```
+
+把帧写回页或把页读回帧
+
+**GetFrame**
+
+```
+std::optional<frame_id_t> BufferPoolManager::GetFrame(page_id_t page_id) {
+    // 如果已经在缓冲区中
+    auto it = page_table_.find(page_id);
+    if (it != page_table_.end()) {
+        replacer_->RecordAccess(it->second);
+        return it->second;
+    }
+
+    frame_id_t frame_id;
+    auto get_free_frame = [&]() -> bool {
+        if (!free_frames_.empty()) {
+            frame_id = free_frames_.front();
+            free_frames_.pop_front();
+            return true;
+        }
+        return false;
+    };
+    // 先尝试空闲帧
+    if (!get_free_frame()) {
+        // 否则尝试驱逐
+        auto evicted = replacer_->Evict();
+        if (!evicted.has_value()) {
+            return std::nullopt;  // 没有可用帧
+        }
+        frame_id = evicted.value();
+
+        // 正在被占用的帧不能驱逐
+        if (frames_[frame_id]->pin_count_ > 0) {
+            return std::nullopt;
+        }
+
+        // 从 page_table 移除并刷回磁盘
+        for (auto it = page_table_.begin(); it != page_table_.end(); ++it) {
+            if (it->second == frame_id) {
+                UpdateFrame(frame_id, it->first, true);
+                page_table_.erase(it);
+                break;
+            }
+        }
+    }
+
+    // 初始化新页面（读/写时）
+    UpdateFrame(frame_id, page_id, false);
+
+    replacer_->RecordAccess(frame_id);
+    page_table_[page_id] = frame_id;
+    return frame_id;
+}
+```
+
+这是我创建的辅助函数，用来获取可用的帧。
+
+首先会判断该页是否已经在内存
+
+然后判断是否有空闲帧
+
+接着通过LRU判断有没有可以淘汰的帧，如果有可以淘汰的帧，需要先将帧内的数据写回磁盘。
+
+讨论完这三种情况后，可以得到可用的帧id，之后将数据从磁盘读到帧中，更新帧的访问记录，建立pagetable映射关系。
 
 
 
-1. BufferPoolManager 是**核心模块**，负责磁盘与内存之间的页面调度。
-2. 要结合 **LRUKReplacer**（决定驱逐页面）和 **DiskScheduler**（调度磁盘读写）。
-3. 要维护 **page table**（page_id → frame 的映射）、**pin_count** 和 **is_dirty**。
-4. 要实现 **RAII PageGuard**，确保线程安全和资源自动释放。
+**CheckedWritePage**
+
+```
+auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
+  auto frame_id = GetFrame(page_id);
+  if (!frame_id.has_value()) {
+    return std::nullopt;
+  }
+  auto frame = frames_[frame_id.value()];
+  return WritePageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);  
+}
+```
+
+根据获得的frame id返回一个守卫
+
+**FlushPageUnsafe**
+
+```
+auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
+  if (page_table_.find(page_id) == page_table_.end()) {
+    return false;
+  }
+  frame_id_t frame_id = page_table_[page_id];
+  auto frame = frames_[frame_id];
+  if (!frame->is_dirty_) {
+    return true;
+  }
+  UpdateFrame(frame_id, page_id, true);
+  return true;
+}
+```
+
+将帧写回磁盘，如果页表中没有page_id返回false
+
+FlushPage在Unsafe的基础上加锁
+
+```
+std::scoped_lock<std::mutex> lock(*bpm_latch_);
+```
+
+
+
+**GetPinCount**
+
+```
+auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
+  if (page_table_.find(page_id) == page_table_.end()) {
+    return std::nullopt;
+  }
+  frame_id_t frame_id = page_table_[page_id];
+  auto frame = frames_[frame_id];
+  return frame->pin_count_;
+}
+```
+
+
+
+### 工作流程
+
+1. 初始化bpm
+
+```
+auto disk_manager = std::make_shared<DiskManager>(db_fname);
+auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+```
+
+2. 创建新页
+
+```
+const page_id_t pid = bpm->NewPage();
+```
+
+得到page id
+
+3. 创建写守卫（写进程）
+
+```
+auto guard = bpm->WritePage(pid);
+```
+
+获取一个可用帧，将page写到帧中（在页表建立映射关系）
+
+4. 写数据
+
+```
+const std::string str = "Hello, world!";
+CopyString(guard.GetDataMut(), str);
+```
+
+5. 完成进程
+
+```
+guard.Drop()
+```
+
